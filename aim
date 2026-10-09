@@ -1,6 +1,6 @@
 -- ====================================================================
--- TÊN: Advanced Aim Assist & ESP HUD v5.0 (All-In-One Ultimate)
--- TÍNH NĂNG: Mobile UI, Prediction, Name ESP, FPS Optimizer (Giảm Lag)
+-- TÊN: Advanced Aim Assist & ESP HUD v5.1 (FIX HUB INVISIBLE)
+-- TÍNH NĂNG: Mobile UI, Prediction, Name ESP, FPS Optimizer
 -- ====================================================================
 
 if getgenv().TestingHudLoaded then return end
@@ -18,40 +18,17 @@ local Camera = workspace.CurrentCamera
 
 -- ==================== CẤU HÌNH HỆ THỐNG ====================
 local Config = {
-    -- Aim & ESP
-    AimAssist = false,
-    ESP = false,
-    NameESP = false,              
-    NameMode = "DisplayName",     
-    ShowDistance = true,          
-    NameMaxDistance = 500,        
-    TeamCheck = true,
-    ShowTeammates = false,
-    FOVRadius = 150,
-    MaxDistance = 500,
-    TargetPart = "HumanoidRootPart",
-    VisibilityCheck = false,
-    EnemyColor = Color3.fromRGB(255, 50, 50),
-    TeamColor = Color3.fromRGB(50, 255, 50),
+    AimAssist = false, ESP = false, NameESP = false, NameMode = "DisplayName",     
+    ShowDistance = true, NameMaxDistance = 500, TeamCheck = true, ShowTeammates = false,
+    FOVRadius = 150, MaxDistance = 500, TargetPart = "HumanoidRootPart", VisibilityCheck = false,
+    EnemyColor = Color3.fromRGB(255, 50, 50), TeamColor = Color3.fromRGB(50, 255, 50),
     DebugText = "Đang chờ...",
     
-    -- Prediction
-    PredictMovement = true,
-    BulletSpeed = 1000,
-    DropCompensation = true,
-    Smoothness = 0.6,
-
-    -- FPS Optimizer
-    GraphicsOptimized = false,
-    GraphicsMode = "Low" -- "Balanced", "Low", "VeryLow"
+    PredictMovement = true, BulletSpeed = 1000, DropCompensation = true, Smoothness = 0.6,
+    GraphicsOptimized = false, GraphicsMode = "Low"
 }
 
-local currentTarget = nil
-local activeHighlights = {}
-local activeNameTags = {} 
-local connections = {}
-
--- ==================== BỘ NHỚ ĐỆM FPS OPTIMIZER ====================
+local currentTarget, activeHighlights, activeNameTags, connections = nil, {}, {}, {}
 local GraphicsCache = { Lighting = {}, Terrain = {}, Parts = {}, Particles = {}, Decals = {} }
 local graphicsAddedConn = nil
 
@@ -64,7 +41,6 @@ local OptModes = {
 -- ==================== LOGIC FPS OPTIMIZER ====================
 local function optimizeInstance(inst, modeSettings)
     if not inst or not inst.Parent then return end
-
     if inst:IsA("BasePart") then
         if modeSettings.SmoothPlastic then
             if not GraphicsCache.Parts[inst] then GraphicsCache.Parts[inst] = { Material = inst.Material, CastShadow = inst.CastShadow } end
@@ -89,32 +65,26 @@ end
 
 local function applyOptimization()
     local settings = OptModes[Config.GraphicsMode]
-    
     GraphicsCache.Lighting.GlobalShadows = Lighting.GlobalShadows
     pcall(function() Lighting.GlobalShadows = settings.Shadows end)
-    
     for _, effect in ipairs(Lighting:GetChildren()) do
         if effect:IsA("PostEffect") or effect:IsA("BlurEffect") or effect:IsA("BloomEffect") or effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") or effect:IsA("DepthOfFieldEffect") then
             if GraphicsCache.Lighting[effect] == nil then GraphicsCache.Lighting[effect] = effect.Enabled end
             pcall(function() effect.Enabled = settings.PostProcessing end)
         end
     end
-
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if terrain then
         GraphicsCache.Terrain = { WaveSize = terrain.WaterWaveSize, WaveSpeed = terrain.WaterWaveSpeed, Reflectance = terrain.WaterReflectance }
         pcall(function() terrain.WaterWaveSize = 0; terrain.WaterWaveSpeed = 0; terrain.WaterReflectance = 0 end)
     end
-
     task.spawn(function()
         local count = 0
         for _, inst in ipairs(Workspace:GetDescendants()) do
             optimizeInstance(inst, settings)
-            count = count + 1
-            if count % 5000 == 0 then task.wait() end 
+            count = count + 1; if count % 5000 == 0 then task.wait() end 
         end
     end)
-
     if graphicsAddedConn then graphicsAddedConn:Disconnect() end
     graphicsAddedConn = Workspace.DescendantAdded:Connect(function(newChild)
         if Config.GraphicsOptimized then optimizeInstance(newChild, OptModes[Config.GraphicsMode]) end
@@ -123,30 +93,19 @@ end
 
 local function restoreGraphics()
     if graphicsAddedConn then graphicsAddedConn:Disconnect(); graphicsAddedConn = nil end
-
     pcall(function() Lighting.GlobalShadows = GraphicsCache.Lighting.GlobalShadows end)
     for effect, state in pairs(GraphicsCache.Lighting) do
         if typeof(effect) == "Instance" and effect.Parent then pcall(function() effect.Enabled = state end) end
     end
-
     local terrain = Workspace:FindFirstChildOfClass("Terrain")
     if terrain and GraphicsCache.Terrain.WaveSize then
         pcall(function() terrain.WaterWaveSize = GraphicsCache.Terrain.WaveSize; terrain.WaterWaveSpeed = GraphicsCache.Terrain.WaveSpeed; terrain.WaterReflectance = GraphicsCache.Terrain.Reflectance end)
     end
-
     for part, data in pairs(GraphicsCache.Parts) do
-        if part and part.Parent then
-            pcall(function() if data.Material then part.Material = data.Material end; if data.CastShadow ~= nil then part.CastShadow = data.CastShadow end end)
-        end
+        if part and part.Parent then pcall(function() if data.Material then part.Material = data.Material end; if data.CastShadow ~= nil then part.CastShadow = data.CastShadow end end) end
     end
-
-    for inst, state in pairs(GraphicsCache.Particles) do
-        if inst and inst.Parent then pcall(function() inst.Enabled = state end) end
-    end
-    for inst, state in pairs(GraphicsCache.Decals) do
-        if inst and inst.Parent then pcall(function() inst.Transparency = state end) end
-    end
-
+    for inst, state in pairs(GraphicsCache.Particles) do if inst and inst.Parent then pcall(function() inst.Enabled = state end) end end
+    for inst, state in pairs(GraphicsCache.Decals) do if inst and inst.Parent then pcall(function() inst.Transparency = state end) end end
     GraphicsCache = { Lighting = {}, Terrain = {}, Parts = {}, Particles = {}, Decals = {} }
 end
 
@@ -167,7 +126,6 @@ end
 local function refreshESP()
     for player, highlight in pairs(activeHighlights) do
         local tag = activeNameTags[player]
-        
         if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and highlight.Parent then
             local isEnm = IsEnemy(player)
             local isVisible = isEnm or Config.ShowTeammates
@@ -198,6 +156,8 @@ local function applyESP(player, character)
     
     local highlight = Instance.new("Highlight")
     highlight.Name = "TestingESP"; highlight.Adornee = character; highlight.OutlineColor = Color3.new(1, 1, 1); highlight.OutlineTransparency = 0.2
+    
+    -- Gắn an toàn vào CoreGui hoặc PlayerGui
     pcall(function() highlight.Parent = CoreGui end)
     if not highlight.Parent then highlight.Parent = LocalPlayer:WaitForChild("PlayerGui") end
     activeHighlights[player] = highlight
@@ -206,6 +166,7 @@ local function applyESP(player, character)
     bbGui.Name = "TestingNameESP"; bbGui.Adornee = head; bbGui.Size = UDim2.new(0, 200, 0, 50); bbGui.StudsOffset = Vector3.new(0, 1.5, 0); bbGui.AlwaysOnTop = true; bbGui.MaxDistance = Config.NameMaxDistance
     local textLabel = Instance.new("TextLabel")
     textLabel.Name = "TextLabel"; textLabel.Size = UDim2.new(1, 0, 1, 0); textLabel.BackgroundTransparency = 1; textLabel.Font = Enum.Font.GothamBold; textLabel.TextSize = 13; textLabel.TextColor3 = Color3.new(1, 1, 1); textLabel.TextStrokeTransparency = 0.2; textLabel.Text = getPlayerNameText(player); textLabel.Parent = bbGui
+    
     pcall(function() bbGui.Parent = CoreGui end)
     if not bbGui.Parent then bbGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
     activeNameTags[player] = bbGui
@@ -264,18 +225,29 @@ local function getClosestTarget()
     return bestTarget
 end
 
--- ==================== KHỞI TẠO UI BẢO MẬT (CHỐNG LỖI) ====================
-local GuiName = "TestingHUD_V5"
+-- ==================== KHỞI TẠO UI (ĐÃ FIX LỖI TÀNG HÌNH) ====================
+local GuiName = "TestingHUD_V5_1"
+
+-- Dọn dẹp an toàn GUI cũ
 pcall(function()
     if CoreGui:FindFirstChild(GuiName) then CoreGui:FindFirstChild(GuiName):Destroy() end
     if LocalPlayer.PlayerGui:FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
 end)
 
 local FovGui = Instance.new("ScreenGui")
-FovGui.Name = GuiName; FovGui.ResetOnSpawn = false; FovGui.IgnoreGuiInset = true 
-local successAttach = pcall(function() FovGui.Parent = (gethui and gethui()) or CoreGui end)
-if not successAttach or not FovGui.Parent then FovGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+FovGui.Name = GuiName
+FovGui.ResetOnSpawn = false
+FovGui.IgnoreGuiInset = true 
 
+-- [ĐIỂM FIX CHÍNH] Ép trực tiếp vào PlayerGui để hiển thị 100% trên điện thoại
+local successAttach = pcall(function()
+    FovGui.Parent = LocalPlayer:WaitForChild("PlayerGui", 3)
+end)
+if not successAttach or not FovGui.Parent then
+    pcall(function() FovGui.Parent = CoreGui end)
+end
+
+-- ==================== MAIN RENDER ====================
 local FovCircle = Instance.new("Frame", FovGui); FovCircle.AnchorPoint = Vector2.new(0.5, 0.5); FovCircle.Position = UDim2.fromScale(0.5, 0.5); FovCircle.BackgroundTransparency = 1; Instance.new("UICorner", FovCircle).CornerRadius = UDim.new(1, 0)
 local FovStroke = Instance.new("UIStroke", FovCircle); FovStroke.Color = Color3.fromRGB(255, 255, 255); FovStroke.Thickness = 1.5
 
@@ -309,11 +281,11 @@ table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
     end
 end))
 
--- ==================== GIAO DIỆN ĐIỀU KHIỂN ====================
+-- ==================== GIAO DIỆN HUB ĐIỀU KHIỂN ====================
 local MainFrame = Instance.new("Frame", FovGui); MainFrame.Size = UDim2.new(0, 250, 0, 360); MainFrame.Position = UDim2.fromScale(0.2, 0.3); MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35); MainFrame.Active = true; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 local FloatBtn = Instance.new("TextButton", FovGui); FloatBtn.Size = UDim2.new(0, 45, 0, 45); FloatBtn.Position = UDim2.new(0, 20, 0.5, 0); FloatBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50); FloatBtn.Text = "HUB"; FloatBtn.TextColor3 = Color3.new(1,1,1); FloatBtn.Font = Enum.Font.GothamBold; FloatBtn.Visible = false; Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
 local TopBar = Instance.new("Frame", MainFrame); TopBar.Size = UDim2.new(1, 0, 0, 35); TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25); Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
-local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUB v5.0 (Aim + Opt)"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUB v5.1 (Fixed)"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 local CloseBtn = Instance.new("TextButton", TopBar); CloseBtn.Size = UDim2.new(0, 35, 1, 0); CloseBtn.Position = UDim2.new(1, -35, 0, 0); CloseBtn.BackgroundTransparency = 1; CloseBtn.Text = "X"; CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80); CloseBtn.Font = Enum.Font.GothamBold
 
 CloseBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; FloatBtn.Visible = true end)
@@ -338,4 +310,5 @@ local function createTitle(text)
     local lbl = Instance.new("TextLabel", Scroll); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.BackgroundTransparency = 1; lbl.Text = text; lbl.TextColor3 = Color3.fromRGB(180, 180, 200); lbl.Font = Enum.Font.GothamBold; lbl.LayoutOrder = layoutOrder; layoutOrder += 1
 end
 
-local function createButton(text, stateVar, callback, customColorOn, customC
+local function createButton(text, stateVar, callback, customColorOn, customColorOff)
+    local btn = Instance.new("TextButton", Scroll); btn.Size = UDim2.new(0.9, 0, 0, 35); btn.BackgroundColor3 = Config[sta
