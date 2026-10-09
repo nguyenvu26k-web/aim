@@ -1,5 +1,5 @@
 -- ====================================================================
--- TÊN: Advanced Aim Assist & ESP HUD v4.0 (Name ESP + Prediction)
+-- TÊN: Advanced Aim Assist & ESP HUD v4.1 (FIX HUB INVISIBLE)
 -- TÍNH NĂNG: Mobile UI, Prediction, Team Check, Name Tags
 -- ====================================================================
 
@@ -18,10 +18,10 @@ local Camera = workspace.CurrentCamera
 local Config = {
     AimAssist = false,
     ESP = false,
-    NameESP = false,              -- Bật/tắt Tên
-    NameMode = "DisplayName",     -- "DisplayName", "Username", "Both"
-    ShowDistance = true,          -- Bật/tắt hiển thị khoảng cách kế bên tên
-    NameMaxDistance = 500,        -- Khoảng cách tối đa để render tên
+    NameESP = false,              
+    NameMode = "DisplayName",     
+    ShowDistance = true,          
+    NameMaxDistance = 500,        
     
     TeamCheck = true,
     ShowTeammates = false,
@@ -41,7 +41,7 @@ local Config = {
 
 local currentTarget = nil
 local activeHighlights = {}
-local activeNameTags = {} -- Lưu trữ BillboardGui của tên
+local activeNameTags = {} 
 local connections = {}
 
 -- ==================== LOGIC ĐỊCH/TA & ESP TÊN ====================
@@ -67,7 +67,6 @@ local function refreshESP()
             local isVisible = isEnm or Config.ShowTeammates
             local color = isEnm and Config.EnemyColor or Config.TeamColor
             
-            -- Xử lý Highlight (Khung)
             if Config.ESP and isVisible then
                 highlight.Enabled = true
                 highlight.FillColor = color
@@ -75,7 +74,6 @@ local function refreshESP()
                 highlight.Enabled = false
             end
             
-            -- Xử lý Name Tag (Tên)
             if tag then
                 if Config.NameESP and isVisible then
                     tag.Enabled = true
@@ -89,7 +87,6 @@ local function refreshESP()
                 end
             end
         else
-            -- Dọn dẹp an toàn khi nhân vật chết hoặc biến mất
             if highlight then highlight:Destroy() end
             if tag then tag:Destroy() end
             activeHighlights[player] = nil
@@ -104,25 +101,26 @@ local function applyESP(player, character)
     local head = character:WaitForChild("Head", 3) or hrp
     if not hrp then return end
 
-    -- Xóa cũ nếu tồn tại
     if activeHighlights[player] then activeHighlights[player]:Destroy() end
     if activeNameTags[player] then activeNameTags[player]:Destroy() end
     
-    -- Tạo Highlight
     local highlight = Instance.new("Highlight")
     highlight.Name = "TestingESP"
     highlight.Adornee = character
     highlight.OutlineColor = Color3.new(1, 1, 1)
     highlight.OutlineTransparency = 0.2
-    highlight.Parent = CoreGui
+    
+    -- Cố gắng gắn Highlight vào CoreGui để tránh bị game phát hiện xóa mất
+    pcall(function() highlight.Parent = CoreGui end)
+    if not highlight.Parent then highlight.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    
     activeHighlights[player] = highlight
     
-    -- Tạo Name ESP (BillboardGui)
     local bbGui = Instance.new("BillboardGui")
     bbGui.Name = "TestingNameESP"
     bbGui.Adornee = head
     bbGui.Size = UDim2.new(0, 200, 0, 50)
-    bbGui.StudsOffset = Vector3.new(0, 1.5, 0) -- Nâng lên trên đỉnh đầu
+    bbGui.StudsOffset = Vector3.new(0, 1.5, 0)
     bbGui.AlwaysOnTop = true
     bbGui.MaxDistance = Config.NameMaxDistance
     
@@ -133,13 +131,14 @@ local function applyESP(player, character)
     textLabel.Font = Enum.Font.GothamBold
     textLabel.TextSize = 13
     textLabel.TextColor3 = Color3.new(1, 1, 1)
-    textLabel.TextStrokeTransparency = 0.2 -- Tạo viền đen để chống lóa trên trời sáng
+    textLabel.TextStrokeTransparency = 0.2 
     textLabel.Text = getPlayerNameText(player)
     textLabel.Parent = bbGui
     
-    bbGui.Parent = CoreGui
-    activeNameTags[player] = bbGui
+    pcall(function() bbGui.Parent = CoreGui end)
+    if not bbGui.Parent then bbGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
     
+    activeNameTags[player] = bbGui
     refreshESP()
 end
 
@@ -195,15 +194,36 @@ local function getClosestTarget()
     return bestTarget
 end
 
--- ==================== VÒNG LẶP CHÍNH (RENDER STEPPED) ====================
-local FovGui = Instance.new("ScreenGui"); FovGui.Name = "TestingHUD_V4"; FovGui.ResetOnSpawn = false; FovGui.IgnoreGuiInset = true 
-pcall(function() local old = CoreGui:FindFirstChild(FovGui.Name) or LocalPlayer.PlayerGui:FindFirstChild(FovGui.Name); if old then old:Destroy() end; FovGui.Parent = CoreGui or LocalPlayer:WaitForChild("PlayerGui") end)
+-- ==================== KHỞI TẠO UI (ĐÃ SỬA LỖI KHÔNG HIỆN) ====================
+local GuiName = "TestingHUD_V4_1"
 
+-- 1. Xóa an toàn GUI cũ ở bất kỳ đâu
+pcall(function()
+    if CoreGui:FindFirstChild(GuiName) then CoreGui:FindFirstChild(GuiName):Destroy() end
+    if LocalPlayer.PlayerGui:FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
+end)
+
+-- 2. Khởi tạo ScreenGui
+local FovGui = Instance.new("ScreenGui")
+FovGui.Name = GuiName
+FovGui.ResetOnSpawn = false
+FovGui.IgnoreGuiInset = true 
+
+-- 3. Logic gắn Parent chắc chắn hiện 100%
+local successAttach = pcall(function()
+    -- Ưu tiên dùng gethui() nếu executor hỗ trợ chống phát hiện, nếu không dùng CoreGui
+    FovGui.Parent = (gethui and gethui()) or CoreGui
+end)
+if not successAttach or not FovGui.Parent then
+    -- Fallback cuối cùng: gắn vào PlayerGui (Hoạt động trên mọi thiết bị và studio)
+    FovGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
+
+-- ==================== VÒNG LẶP CHÍNH ====================
 local FovCircle = Instance.new("Frame", FovGui); FovCircle.AnchorPoint = Vector2.new(0.5, 0.5); FovCircle.Position = UDim2.fromScale(0.5, 0.5); FovCircle.BackgroundTransparency = 1; Instance.new("UICorner", FovCircle).CornerRadius = UDim.new(1, 0)
 local FovStroke = Instance.new("UIStroke", FovCircle); FovStroke.Color = Color3.fromRGB(255, 255, 255); FovStroke.Thickness = 1.5
 
 table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
-    -- 1. Cập nhật Aim Assist
     FovCircle.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2); FovCircle.Visible = Config.AimAssist
     if Config.AimAssist then
         currentTarget = getClosestTarget()
@@ -221,7 +241,6 @@ table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
         end
     end
     
-    -- 2. Cập nhật Khoảng cách Tên ESP trực tiếp
     if Config.NameESP and Config.ShowDistance then
         local myPos = Camera.CFrame.Position
         for player, tag in pairs(activeNameTags) do
@@ -234,11 +253,11 @@ table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
     end
 end))
 
--- ==================== GIAO DIỆN HUB (MOBILE COMPATIBLE) ====================
+-- ==================== GIAO DIỆN HUB CẤU HÌNH ====================
 local MainFrame = Instance.new("Frame", FovGui); MainFrame.Size = UDim2.new(0, 250, 0, 360); MainFrame.Position = UDim2.fromScale(0.2, 0.3); MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35); MainFrame.Active = true; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 local FloatBtn = Instance.new("TextButton", FovGui); FloatBtn.Size = UDim2.new(0, 45, 0, 45); FloatBtn.Position = UDim2.new(0, 20, 0.5, 0); FloatBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50); FloatBtn.Text = "HUB"; FloatBtn.TextColor3 = Color3.new(1,1,1); FloatBtn.Font = Enum.Font.GothamBold; FloatBtn.Visible = false; Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
 local TopBar = Instance.new("Frame", MainFrame); TopBar.Size = UDim2.new(1, 0, 0, 35); TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25); Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
-local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUD CONTROL v4"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUD CONTROL v4.1"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 local CloseBtn = Instance.new("TextButton", TopBar); CloseBtn.Size = UDim2.new(0, 35, 1, 0); CloseBtn.Position = UDim2.new(1, -35, 0, 0); CloseBtn.BackgroundTransparency = 1; CloseBtn.Text = "X"; CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80); CloseBtn.Font = Enum.Font.GothamBold
 
 CloseBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; FloatBtn.Visible = true end)
@@ -274,7 +293,7 @@ local function createValueTuner(text, min, max, step, configKey, callback)
     btnPlus.MouseButton1Click:Connect(function() Config[configKey] = math.min(max, Config[configKey] + step); label.Text = text .. ": " .. Config[configKey]; if callback then callback() end end)
 end
 
--- === TẠO CÁC NÚT ĐIỀU KHIỂN ===
+-- TẠO CÁC NÚT ĐIỀU KHIỂN
 createButton("ESP Highlight", "ESP", refreshESP)
 createButton("Enemy Name ESP", "NameESP", refreshESP)
 
@@ -285,7 +304,7 @@ modeBtn.MouseButton1Click:Connect(function()
 end)
 
 createButton("Show Distance", "ShowDistance", refreshESP)
-createValueTuner("Max Name Dist", 50, 2000, 50, "NameMaxDistance", refreshESP) -- Auto refresh khi chỉnh max distance
+createValueTuner("Max Name Dist", 50, 2000, 50, "NameMaxDistance", refreshESP) 
 createButton("Team Check", "TeamCheck", refreshESP)
 createButton("Show Teammates", "ShowTeammates", refreshESP)
 
