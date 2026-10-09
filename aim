@@ -1,6 +1,5 @@
 -- ====================================================================
--- TÊN: Advanced Aim Assist & ESP HUD v5.1 (FIX HUB INVISIBLE)
--- TÍNH NĂNG: Mobile UI, Prediction, Name ESP, FPS Optimizer
+-- TÊN: Advanced Aim Assist & ESP HUD v5.2 (FINAL FIX - BULLETPROOF UI)
 -- ====================================================================
 
 if getgenv().TestingHudLoaded then return end
@@ -13,7 +12,12 @@ local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
 
+-- [FIX 1]: Chờ LocalPlayer tải hoàn tất để chống lỗi Auto-Execute
 local LocalPlayer = Players.LocalPlayer
+while not LocalPlayer do
+    task.wait(0.5)
+    LocalPlayer = Players.LocalPlayer
+end
 local Camera = workspace.CurrentCamera
 
 -- ==================== CẤU HÌNH HỆ THỐNG ====================
@@ -23,7 +27,6 @@ local Config = {
     FOVRadius = 150, MaxDistance = 500, TargetPart = "HumanoidRootPart", VisibilityCheck = false,
     EnemyColor = Color3.fromRGB(255, 50, 50), TeamColor = Color3.fromRGB(50, 255, 50),
     DebugText = "Đang chờ...",
-    
     PredictMovement = true, BulletSpeed = 1000, DropCompensation = true, Smoothness = 0.6,
     GraphicsOptimized = false, GraphicsMode = "Low"
 }
@@ -157,7 +160,6 @@ local function applyESP(player, character)
     local highlight = Instance.new("Highlight")
     highlight.Name = "TestingESP"; highlight.Adornee = character; highlight.OutlineColor = Color3.new(1, 1, 1); highlight.OutlineTransparency = 0.2
     
-    -- Gắn an toàn vào CoreGui hoặc PlayerGui
     pcall(function() highlight.Parent = CoreGui end)
     if not highlight.Parent then highlight.Parent = LocalPlayer:WaitForChild("PlayerGui") end
     activeHighlights[player] = highlight
@@ -225,27 +227,31 @@ local function getClosestTarget()
     return bestTarget
 end
 
--- ==================== KHỞI TẠO UI (ĐÃ FIX LỖI TÀNG HÌNH) ====================
-local GuiName = "TestingHUD_V5_1"
+-- ==================== KHỞI TẠO UI (SỬA LỖI TÀNG HÌNH) ====================
+local GuiName = "TestingHUD_V5_2"
 
 -- Dọn dẹp an toàn GUI cũ
 pcall(function()
     if CoreGui:FindFirstChild(GuiName) then CoreGui:FindFirstChild(GuiName):Destroy() end
-    if LocalPlayer.PlayerGui:FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
+    if LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
 end)
 
 local FovGui = Instance.new("ScreenGui")
 FovGui.Name = GuiName
 FovGui.ResetOnSpawn = false
 FovGui.IgnoreGuiInset = true 
+FovGui.DisplayOrder = 99999 -- [FIX 2]: Đảm bảo luôn nằm trên cùng mọi UI của game
 
--- [ĐIỂM FIX CHÍNH] Ép trực tiếp vào PlayerGui để hiển thị 100% trên điện thoại
-local successAttach = pcall(function()
-    FovGui.Parent = LocalPlayer:WaitForChild("PlayerGui", 3)
-end)
-if not successAttach or not FovGui.Parent then
-    pcall(function() FovGui.Parent = CoreGui end)
+-- [FIX 3]: Hàm tìm Parent an toàn, tuyệt đối không bị lỗi
+local function GetUIParent()
+    local success, result = pcall(function() return gethui() end)
+    if success and result then return result end
+    local success2, result2 = pcall(function() return CoreGui end)
+    if success2 and result2 then return result2 end
+    return LocalPlayer:WaitForChild("PlayerGui", 5)
 end
+
+FovGui.Parent = GetUIParent()
 
 -- ==================== MAIN RENDER ====================
 local FovCircle = Instance.new("Frame", FovGui); FovCircle.AnchorPoint = Vector2.new(0.5, 0.5); FovCircle.Position = UDim2.fromScale(0.5, 0.5); FovCircle.BackgroundTransparency = 1; Instance.new("UICorner", FovCircle).CornerRadius = UDim.new(1, 0)
@@ -285,7 +291,7 @@ end))
 local MainFrame = Instance.new("Frame", FovGui); MainFrame.Size = UDim2.new(0, 250, 0, 360); MainFrame.Position = UDim2.fromScale(0.2, 0.3); MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35); MainFrame.Active = true; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 local FloatBtn = Instance.new("TextButton", FovGui); FloatBtn.Size = UDim2.new(0, 45, 0, 45); FloatBtn.Position = UDim2.new(0, 20, 0.5, 0); FloatBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50); FloatBtn.Text = "HUB"; FloatBtn.TextColor3 = Color3.new(1,1,1); FloatBtn.Font = Enum.Font.GothamBold; FloatBtn.Visible = false; Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
 local TopBar = Instance.new("Frame", MainFrame); TopBar.Size = UDim2.new(1, 0, 0, 35); TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25); Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
-local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUB v5.1 (Fixed)"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUB v5.2 (Fix UI)"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 local CloseBtn = Instance.new("TextButton", TopBar); CloseBtn.Size = UDim2.new(0, 35, 1, 0); CloseBtn.Position = UDim2.new(1, -35, 0, 0); CloseBtn.BackgroundTransparency = 1; CloseBtn.Text = "X"; CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80); CloseBtn.Font = Enum.Font.GothamBold
 
 CloseBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; FloatBtn.Visible = true end)
@@ -307,8 +313,4 @@ table.insert(connections, RunService.RenderStepped:Connect(function() DebugLabel
 
 local layoutOrder = 0
 local function createTitle(text)
-    local lbl = Instance.new("TextLabel", Scroll); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.BackgroundTransparency = 1; lbl.Text = text; lbl.TextColor3 = Color3.fromRGB(180, 180, 200); lbl.Font = Enum.Font.GothamBold; lbl.LayoutOrder = layoutOrder; layoutOrder += 1
-end
-
-local function createButton(text, stateVar, callback, customColorOn, customColorOff)
-    local btn = Instance.new("TextButton", Scroll); btn.Size = UDim2.new(0.9, 0, 0, 35); btn.BackgroundColor3 = Config[sta
+    local lbl = Instance.new("TextLabel", Scroll); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.BackgroundTransparency = 1; lbl.Text = text; lbl.TextColor3 = Color3.fromRGB(180, 180, 200); lbl.Font = Enum.Font.Go
