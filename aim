@@ -1,0 +1,347 @@
+-- ====================================================================
+-- TÊN: Advanced Aim Assist & ESP HUD v2.0 (Mobile Optimized & Debug)
+-- ====================================================================
+
+if getgenv().TestingHudLoaded then return end
+getgenv().TestingHudLoaded = true
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+-- ==================== CẤU HÌNH HỆ THỐNG ====================
+local Config = {
+    AimAssist = false,
+    ESP = false,
+    TeamCheck = true,
+    ShowTeammates = false,
+    FOVRadius = 150,
+    MaxDistance = 500,
+    TargetPart = "HumanoidRootPart",
+    VisibilityCheck = false,
+    EnemyColor = Color3.fromRGB(255, 50, 50),
+    TeamColor = Color3.fromRGB(50, 255, 50),
+    DebugText = "Đang chờ..."
+}
+
+local currentTarget = nil
+local activeHighlights = {}
+local connections = {}
+
+-- ==================== LOGIC ĐỊCH/TA & ESP ====================
+local function IsEnemy(targetPlayer)
+    if targetPlayer == LocalPlayer then return false end
+    if not Config.TeamCheck then return true end 
+    if LocalPlayer.Team == nil or targetPlayer.Team == nil then return true end
+    return LocalPlayer.Team ~= targetPlayer.Team
+end
+
+local function refreshESP()
+    for player, highlight in pairs(activeHighlights) do
+        if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and highlight.Parent then
+            if Config.ESP then
+                if IsEnemy(player) then
+                    highlight.Enabled = true
+                    highlight.FillColor = Config.EnemyColor
+                else
+                    highlight.Enabled = Config.ShowTeammates
+                    highlight.FillColor = Config.TeamColor
+                end
+            else
+                highlight.Enabled = false
+            end
+        else
+            if highlight then highlight:Destroy() end
+            activeHighlights[player] = nil
+        end
+    end
+end
+
+local function applyESP(player, character)
+    if not character then return end
+    -- Đợi nhân vật thực sự load xong (Fix lỗi ESP không hiện)
+    local hrp = character:WaitForChild("HumanoidRootPart", 3)
+    if not hrp then return end
+
+    if activeHighlights[player] then activeHighlights[player]:Destroy() end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "TestingESP"
+    highlight.Adornee = character -- Bắt buộc gán Adornee
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.OutlineTransparency = 0.2
+    highlight.Parent = CoreGui -- Parent vào CoreGui để an toàn, Adornee gắn vào char
+    activeHighlights[player] = highlight
+    
+    refreshESP()
+end
+
+local function setupPlayer(player)
+    if player == LocalPlayer then return end
+    table.insert(connections, player:GetPropertyChangedSignal("Team"):Connect(refreshESP))
+    table.insert(connections, player.CharacterAdded:Connect(function(char)
+        applyESP(player, char)
+    end))
+    if player.Character then applyESP(player, player.Character) end
+end
+
+table.insert(connections, LocalPlayer:GetPropertyChangedSignal("Team"):Connect(refreshESP))
+for _, player in ipairs(Players:GetPlayers()) do setupPlayer(player) end
+table.insert(connections, Players.PlayerAdded:Connect(setupPlayer))
+table.insert(connections, Players.PlayerRemoving:Connect(function(player)
+    if activeHighlights[player] then
+        activeHighlights[player]:Destroy()
+        activeHighlights[player] = nil
+    end
+end))
+
+-- ==================== THUẬT TOÁN NGẮM & DEBUG ====================
+local function getClosestTarget()
+    local nearestDist = Config.FOVRadius
+    local bestTarget = nil
+    local screenCenter = Camera.ViewportSize / 2 
+    local debugReason = "Không tìm thấy mục tiêu"
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player == LocalPlayer then continue end
+        
+        local char = player.Character
+        if not char then continue end
+        
+        local hum = char:FindFirstChild("Humanoid")
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local targetPart = char:FindFirstChild(Config.TargetPart)
+        
+        if not (hum and hrp and targetPart) then continue end
+        if hum.Health <= 0 then continue end
+        if not IsEnemy(player) then debugReason = "Mục tiêu là Đồng Đội"; continue end
+        
+        local dist3D = (targetPart.Position - Camera.CFrame.Position).Magnitude
+        if dist3D > Config.MaxDistance then debugReason = "Ngoài tầm Max Distance"; continue end
+        
+        local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+        if not onScreen then debugReason = "Khuất sau Camera"; continue end
+        
+        local dist2D = (Vector2.new(vector.X, vector.Y) - screenCenter).Magnitude
+        if dist2D > nearestDist then debugReason = "Ngoài vòng FOV"; continue end
+        
+        if Config.VisibilityCheck then
+            local rayParams = RaycastParams.new()
+            -- Bỏ qua bản thân và các phụ kiện (mũ, áo) của mục tiêu để tránh nhiễu
+            rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+            rayParams.FilterType = Enum.RaycastFilterType.Exclude
+            
+            local direction = (targetPart.Position - Camera.CFrame.Position).Unit * dist3D
+            local result = workspace:Raycast(Camera.CFrame.Position, direction, rayParams)
+            
+            if result and result.Instance and not result.Instance:IsDescendantOf(char) then
+                debugReason = "Bị vật cản che khuất: " .. result.Instance.Name
+                continue
+            end
+        end
+        
+        nearestDist = dist2D
+        bestTarget = targetPart
+        debugReason = "Đã khóa mục tiêu: " .. player.Name
+    end
+    
+    Config.DebugText = debugReason
+    return bestTarget
+end
+
+-- ==================== GIAO DIỆN CĂN GIỮA MÀN HÌNH ====================
+local GuiName = "TestingHUD_V2"
+pcall(function()
+    local old = CoreGui:FindFirstChild(GuiName) or LocalPlayer.PlayerGui:FindFirstChild(GuiName)
+    if old then old:Destroy() end
+end)
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = GuiName
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true 
+pcall(function() ScreenGui.Parent = CoreGui or LocalPlayer:WaitForChild("PlayerGui") end)
+
+-- VÒNG FOV
+local FovCircle = Instance.new("Frame", ScreenGui)
+FovCircle.AnchorPoint = Vector2.new(0.5, 0.5) 
+FovCircle.Position = UDim2.fromScale(0.5, 0.5)
+FovCircle.BackgroundTransparency = 1
+Instance.new("UICorner", FovCircle).CornerRadius = UDim.new(1, 0)
+local FovStroke = Instance.new("UIStroke", FovCircle)
+FovStroke.Color = Color3.fromRGB(255, 255, 255)
+FovStroke.Thickness = 1.5
+
+-- Vòng lặp chính xử lý FOV & Aim Assist
+table.insert(connections, RunService.RenderStepped:Connect(function()
+    FovCircle.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
+    FovCircle.Visible = Config.AimAssist
+
+    if Config.AimAssist then
+        currentTarget = getClosestTarget()
+        if currentTarget then
+            local targetCFrame = CFrame.new(Camera.CFrame.Position, currentTarget.Position)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 0.4)
+        end
+    end
+end))
+
+-- ==================== XÂY DỰNG HUB UI CHO MOBILE ====================
+local MainFrame = Instance.new("Frame", ScreenGui)
+MainFrame.Size = UDim2.new(0, 240, 0, 320)
+MainFrame.Position = UDim2.fromScale(0.2, 0.3)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+MainFrame.Active = true
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
+
+-- NÚT ẨN/HIỆN (Floating Button)
+local FloatBtn = Instance.new("TextButton", ScreenGui)
+FloatBtn.Size = UDim2.new(0, 45, 0, 45)
+FloatBtn.Position = UDim2.new(0, 20, 0.5, 0)
+FloatBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+FloatBtn.Text = "HUB"
+FloatBtn.TextColor3 = Color3.new(1,1,1)
+FloatBtn.Font = Enum.Font.GothamBold
+FloatBtn.Visible = false
+Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
+
+-- TOPBAR CỦA MAINFRAME
+local TopBar = Instance.new("Frame", MainFrame)
+TopBar.Size = UDim2.new(1, 0, 0, 35)
+TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
+
+local TitleLabel = Instance.new("TextLabel", TopBar)
+TitleLabel.Size = UDim2.new(0.8, 0, 1, 0)
+TitleLabel.BackgroundTransparency = 1
+TitleLabel.Text = " HUD CONTROL v2"
+TitleLabel.TextColor3 = Color3.new(1, 1, 1)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+
+local CloseBtn = Instance.new("TextButton", TopBar)
+CloseBtn.Size = UDim2.new(0, 35, 1, 0)
+CloseBtn.Position = UDim2.new(1, -35, 0, 0)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "X"
+CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    FloatBtn.Visible = true
+end)
+FloatBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = true
+    FloatBtn.Visible = false
+end)
+
+-- LOGIC DRAG CHUNG CHO HUB & NÚT NỔI
+local function makeDraggable(guiObject)
+    local dragging, dragInput, dragStartPos, frameStartPos
+    guiObject.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true; dragStartPos = input.Position; frameStartPos = guiObject.Parent == ScreenGui and guiObject.Position or MainFrame.Position
+            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
+        end
+    end)
+    guiObject.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStartPos
+            local targetObj = guiObject.Parent == ScreenGui and guiObject or MainFrame
+            targetObj.Position = UDim2.new(frameStartPos.X.Scale, frameStartPos.X.Offset + delta.X, frameStartPos.Y.Scale, frameStartPos.Y.Offset + delta.Y)
+        end
+    end)
+end
+makeDraggable(TopBar)
+makeDraggable(FloatBtn)
+
+-- SCROLLING FRAME CHO ĐIỆN THOẠI (Ngăn tràn UI)
+local Scroll = Instance.new("ScrollingFrame", MainFrame)
+Scroll.Size = UDim2.new(1, 0, 1, -60) -- Chừa chỗ cho Topbar và DebugText
+Scroll.Position = UDim2.new(0, 0, 0, 35)
+Scroll.BackgroundTransparency = 1
+Scroll.ScrollBarThickness = 3
+Scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
+Scroll.CanvasSize = UDim2.new(0,0,0,0)
+
+local UIList = Instance.new("UIListLayout", Scroll)
+UIList.SortOrder = Enum.SortOrder.LayoutOrder
+UIList.Padding = UDim.new(0, 8)
+UIList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+local UIPad = Instance.new("UIPadding", Scroll)
+UIPad.PaddingTop = UDim.new(0, 10)
+UIPad.PaddingBottom = UDim.new(0, 10)
+
+-- DEBUG TEXT Ở DƯỚI CÙNG
+local DebugLabel = Instance.new("TextLabel", MainFrame)
+DebugLabel.Size = UDim2.new(1, -10, 0, 20)
+DebugLabel.Position = UDim2.new(0, 5, 1, -22)
+DebugLabel.BackgroundTransparency = 1
+DebugLabel.TextColor3 = Color3.fromRGB(200, 200, 100)
+DebugLabel.Font = Enum.Font.Gotham
+DebugLabel.TextSize = 10
+DebugLabel.TextWrapped = true
+
+table.insert(connections, RunService.RenderStepped:Connect(function()
+    if Config.AimAssist then DebugLabel.Text = "Aim: " .. Config.DebugText else DebugLabel.Text = "Aim: Đang tắt" end
+end))
+
+-- HÀM TẠO NÚT NHÉT VÀO SCROLLING FRAME
+local layoutOrder = 0
+local function createButton(text, initialState, callback)
+    local btn = Instance.new("TextButton", Scroll)
+    btn.Size = UDim2.new(0.9, 0, 0, 35) -- Tăng size cho dễ bấm chạm
+    btn.BackgroundColor3 = initialState and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(60, 60, 70)
+    btn.TextColor3 = Color3.new(1, 1, 1); btn.Text = text .. ": " .. (initialState and "ON" or "OFF"); btn.Font = Enum.Font.GothamBold
+    btn.LayoutOrder = layoutOrder; layoutOrder += 1
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    
+    local state = initialState
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(60, 60, 70)
+        btn.Text = text .. ": " .. (state and "ON" or "OFF")
+        callback(state)
+    end)
+    return btn
+end
+
+local function createValueTuner(text, min, max, step, configKey)
+    local frame = Instance.new("Frame", Scroll)
+    frame.Size = UDim2.new(0.9, 0, 0, 60)
+    frame.BackgroundTransparency = 1
+    frame.LayoutOrder = layoutOrder; layoutOrder += 1
+
+    local label = Instance.new("TextLabel", frame)
+    label.Size = UDim2.new(1, 0, 0, 25)
+    label.BackgroundTransparency = 1; label.TextColor3 = Color3.new(1, 1, 1); label.Text = text .. ": " .. Config[configKey]; label.Font = Enum.Font.Gotham
+    
+    local btnMinus = Instance.new("TextButton", frame); btnMinus.Size = UDim2.new(0.25, 0, 0, 30); btnMinus.Position = UDim2.new(0, 0, 0, 30); btnMinus.Text = "-"; btnMinus.BackgroundColor3 = Color3.fromRGB(70,70,80); btnMinus.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", btnMinus).CornerRadius = UDim.new(0,5)
+    local btnPlus = Instance.new("TextButton", frame); btnPlus.Size = UDim2.new(0.25, 0, 0, 30); btnPlus.Position = UDim2.new(0.75, 0, 0, 30); btnPlus.Text = "+"; btnPlus.BackgroundColor3 = Color3.fromRGB(70,70,80); btnPlus.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", btnPlus).CornerRadius = UDim.new(0,5)
+    
+    btnMinus.MouseButton1Click:Connect(function() Config[configKey] = math.max(min, Config[configKey] - step); label.Text = text .. ": " .. Config[configKey] end)
+    btnPlus.MouseButton1Click:Connect(function() Config[configKey] = math.min(max, Config[configKey] + step); label.Text = text .. ": " .. Config[configKey] end)
+end
+
+createButton("Aim Assist", Config.AimAssist, function(val) Config.AimAssist = val; FovCircle.Visible = val end)
+createButton("ESP Highlight", Config.ESP, function(val) Config.ESP = val; refreshESP() end)
+createButton("Team Check", Config.TeamCheck, function(val) Config.TeamCheck = val; refreshESP() end)
+createButton("Vis Check (Raycast)", Config.VisibilityCheck, function(val) Config.VisibilityCheck = val end)
+
+local partBtn = Instance.new("TextButton", Scroll)
+partBtn.Size = UDim2.new(0.9, 0, 0, 35); partBtn.BackgroundColor3 = Color3.fromRGB(80, 100, 150); partBtn.TextColor3 = Color3.new(1, 1, 1); partBtn.Text = "Target: " .. Config.TargetPart; partBtn.Font = Enum.Font.GothamBold; partBtn.LayoutOrder = layoutOrder; layoutOrder += 1
+Instance.new("UICorner", partBtn).CornerRadius = UDim.new(0, 5)
+partBtn.MouseButton1Click:Connect(function()
+    Config.TargetPart = Config.TargetPart == "HumanoidRootPart" and "Head" or "HumanoidRootPart"
+    partBtn.Text = "Target: " .. Config.TargetPart
+end)
+
+createValueTuner("FOV Radius", 50, 500, 25, "FOVRadius")
+createValueTuner("Max Distance", 50, 2000, 50, "MaxDistance")
