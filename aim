@@ -1,5 +1,6 @@
 -- ====================================================================
--- TÊN: Advanced Aim Assist & ESP HUD v2.0 (Mobile Optimized & Debug)
+-- TÊN: Advanced Aim Assist & ESP HUD v3.0 (Full & Optimized)
+-- TÍNH NĂNG: Mobile UI, Prediction Aim, Team Check, Auto ESP
 -- ====================================================================
 
 if getgenv().TestingHudLoaded then return end
@@ -25,7 +26,12 @@ local Config = {
     VisibilityCheck = false,
     EnemyColor = Color3.fromRGB(255, 50, 50),
     TeamColor = Color3.fromRGB(50, 255, 50),
-    DebugText = "Đang chờ..."
+    DebugText = "Đang chờ...",
+    
+    PredictMovement = true,
+    BulletSpeed = 1000,
+    DropCompensation = true,
+    Smoothness = 0.6
 }
 
 local currentTarget = nil
@@ -63,7 +69,6 @@ end
 
 local function applyESP(player, character)
     if not character then return end
-    -- Đợi nhân vật thực sự load xong (Fix lỗi ESP không hiện)
     local hrp = character:WaitForChild("HumanoidRootPart", 3)
     if not hrp then return end
 
@@ -71,10 +76,10 @@ local function applyESP(player, character)
     
     local highlight = Instance.new("Highlight")
     highlight.Name = "TestingESP"
-    highlight.Adornee = character -- Bắt buộc gán Adornee
+    highlight.Adornee = character
     highlight.OutlineColor = Color3.new(1, 1, 1)
     highlight.OutlineTransparency = 0.2
-    highlight.Parent = CoreGui -- Parent vào CoreGui để an toàn, Adornee gắn vào char
+    highlight.Parent = CoreGui
     activeHighlights[player] = highlight
     
     refreshESP()
@@ -99,7 +104,7 @@ table.insert(connections, Players.PlayerRemoving:Connect(function(player)
     end
 end))
 
--- ==================== THUẬT TOÁN NGẮM & DEBUG ====================
+-- ==================== THUẬT TOÁN NGẮM & DỰ ĐOÁN ====================
 local function getClosestTarget()
     local nearestDist = Config.FOVRadius
     local bestTarget = nil
@@ -131,7 +136,6 @@ local function getClosestTarget()
         
         if Config.VisibilityCheck then
             local rayParams = RaycastParams.new()
-            -- Bỏ qua bản thân và các phụ kiện (mũ, áo) của mục tiêu để tránh nhiễu
             rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
             rayParams.FilterType = Enum.RaycastFilterType.Exclude
             
@@ -146,15 +150,15 @@ local function getClosestTarget()
         
         nearestDist = dist2D
         bestTarget = targetPart
-        debugReason = "Đã khóa mục tiêu: " .. player.Name
+        debugReason = "Đã khóa: " .. player.Name
     end
     
     Config.DebugText = debugReason
     return bestTarget
 end
 
--- ==================== GIAO DIỆN CĂN GIỮA MÀN HÌNH ====================
-local GuiName = "TestingHUD_V2"
+-- ==================== GIAO DIỆN VÀ FOV ====================
+local GuiName = "TestingHUD_V3"
 pcall(function()
     local old = CoreGui:FindFirstChild(GuiName) or LocalPlayer.PlayerGui:FindFirstChild(GuiName)
     if old then old:Destroy() end
@@ -166,7 +170,6 @@ ScreenGui.ResetOnSpawn = false
 ScreenGui.IgnoreGuiInset = true 
 pcall(function() ScreenGui.Parent = CoreGui or LocalPlayer:WaitForChild("PlayerGui") end)
 
--- VÒNG FOV
 local FovCircle = Instance.new("Frame", ScreenGui)
 FovCircle.AnchorPoint = Vector2.new(0.5, 0.5) 
 FovCircle.Position = UDim2.fromScale(0.5, 0.5)
@@ -176,21 +179,42 @@ local FovStroke = Instance.new("UIStroke", FovCircle)
 FovStroke.Color = Color3.fromRGB(255, 255, 255)
 FovStroke.Thickness = 1.5
 
--- Vòng lặp chính xử lý FOV & Aim Assist
-table.insert(connections, RunService.RenderStepped:Connect(function()
+-- Vòng lặp chính xử lý Aim Assist
+table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
     FovCircle.Size = UDim2.fromOffset(Config.FOVRadius * 2, Config.FOVRadius * 2)
     FovCircle.Visible = Config.AimAssist
 
     if Config.AimAssist then
         currentTarget = getClosestTarget()
+        
         if currentTarget then
-            local targetCFrame = CFrame.new(Camera.CFrame.Position, currentTarget.Position)
-            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, 0.4)
+            local aimPosition = currentTarget.Position
+            
+            if Config.PredictMovement then
+                local velocity = currentTarget.AssemblyLinearVelocity
+                local distance = (aimPosition - Camera.CFrame.Position).Magnitude
+                
+                if Config.BulletSpeed > 0 then
+                    local travelTime = distance / Config.BulletSpeed
+                    aimPosition = aimPosition + (velocity * travelTime)
+                    
+                    if Config.DropCompensation then
+                        local gravity = workspace.Gravity
+                        aimPosition = aimPosition + Vector3.new(0, 0.5 * gravity * math.pow(travelTime, 2), 0)
+                    end
+                else
+                    aimPosition = aimPosition + (velocity * 0.04)
+                end
+            end
+            
+            local targetCFrame = CFrame.new(Camera.CFrame.Position, aimPosition)
+            local lerpFactor = math.clamp(Config.Smoothness * (deltaTime * 60), 0.1, 1)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCFrame, lerpFactor)
         end
     end
 end))
 
--- ==================== XÂY DỰNG HUB UI CHO MOBILE ====================
+-- ==================== XÂY DỰNG HUB UI ====================
 local MainFrame = Instance.new("Frame", ScreenGui)
 MainFrame.Size = UDim2.new(0, 240, 0, 320)
 MainFrame.Position = UDim2.fromScale(0.2, 0.3)
@@ -198,7 +222,6 @@ MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 MainFrame.Active = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 
--- NÚT ẨN/HIỆN (Floating Button)
 local FloatBtn = Instance.new("TextButton", ScreenGui)
 FloatBtn.Size = UDim2.new(0, 45, 0, 45)
 FloatBtn.Position = UDim2.new(0, 20, 0.5, 0)
@@ -209,7 +232,6 @@ FloatBtn.Font = Enum.Font.GothamBold
 FloatBtn.Visible = false
 Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
 
--- TOPBAR CỦA MAINFRAME
 local TopBar = Instance.new("Frame", MainFrame)
 TopBar.Size = UDim2.new(1, 0, 0, 35)
 TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
@@ -218,7 +240,7 @@ Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
 local TitleLabel = Instance.new("TextLabel", TopBar)
 TitleLabel.Size = UDim2.new(0.8, 0, 1, 0)
 TitleLabel.BackgroundTransparency = 1
-TitleLabel.Text = " HUD CONTROL v2"
+TitleLabel.Text = " HUD CONTROL v3"
 TitleLabel.TextColor3 = Color3.new(1, 1, 1)
 TitleLabel.Font = Enum.Font.GothamBold
 TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -239,7 +261,6 @@ FloatBtn.MouseButton1Click:Connect(function()
     FloatBtn.Visible = false
 end)
 
--- LOGIC DRAG CHUNG CHO HUB & NÚT NỔI
 local function makeDraggable(guiObject)
     local dragging, dragInput, dragStartPos, frameStartPos
     guiObject.InputBegan:Connect(function(input)
@@ -262,9 +283,8 @@ end
 makeDraggable(TopBar)
 makeDraggable(FloatBtn)
 
--- SCROLLING FRAME CHO ĐIỆN THOẠI (Ngăn tràn UI)
 local Scroll = Instance.new("ScrollingFrame", MainFrame)
-Scroll.Size = UDim2.new(1, 0, 1, -60) -- Chừa chỗ cho Topbar và DebugText
+Scroll.Size = UDim2.new(1, 0, 1, -60)
 Scroll.Position = UDim2.new(0, 0, 0, 35)
 Scroll.BackgroundTransparency = 1
 Scroll.ScrollBarThickness = 3
@@ -279,7 +299,6 @@ local UIPad = Instance.new("UIPadding", Scroll)
 UIPad.PaddingTop = UDim.new(0, 10)
 UIPad.PaddingBottom = UDim.new(0, 10)
 
--- DEBUG TEXT Ở DƯỚI CÙNG
 local DebugLabel = Instance.new("TextLabel", MainFrame)
 DebugLabel.Size = UDim2.new(1, -10, 0, 20)
 DebugLabel.Position = UDim2.new(0, 5, 1, -22)
@@ -293,11 +312,10 @@ table.insert(connections, RunService.RenderStepped:Connect(function()
     if Config.AimAssist then DebugLabel.Text = "Aim: " .. Config.DebugText else DebugLabel.Text = "Aim: Đang tắt" end
 end))
 
--- HÀM TẠO NÚT NHÉT VÀO SCROLLING FRAME
 local layoutOrder = 0
 local function createButton(text, initialState, callback)
     local btn = Instance.new("TextButton", Scroll)
-    btn.Size = UDim2.new(0.9, 0, 0, 35) -- Tăng size cho dễ bấm chạm
+    btn.Size = UDim2.new(0.9, 0, 0, 35)
     btn.BackgroundColor3 = initialState and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(60, 60, 70)
     btn.TextColor3 = Color3.new(1, 1, 1); btn.Text = text .. ": " .. (initialState and "ON" or "OFF"); btn.Font = Enum.Font.GothamBold
     btn.LayoutOrder = layoutOrder; layoutOrder += 1
@@ -343,5 +361,10 @@ partBtn.MouseButton1Click:Connect(function()
     partBtn.Text = "Target: " .. Config.TargetPart
 end)
 
+createButton("Movement Prediction", Config.PredictMovement, function(val) Config.PredictMovement = val end)
+createButton("Bullet Drop Comp", Config.DropCompensation, function(val) Config.DropCompensation = val end)
+
 createValueTuner("FOV Radius", 50, 500, 25, "FOVRadius")
 createValueTuner("Max Distance", 50, 2000, 50, "MaxDistance")
+createValueTuner("Bullet Speed (0=Hitscan)", 0, 5000, 100, "BulletSpeed")
+createValueTuner("Aim Smoothness", 0.1, 1.0, 0.1, "Smoothness")
