@@ -1,5 +1,6 @@
 -- ====================================================================
--- TÊN: Advanced Aim Assist & ESP HUD v5.2 (FINAL FIX - BULLETPROOF UI)
+-- TÊN: Advanced Aim Assist & ESP HUD v4.1 (FIX HUB INVISIBLE)
+-- TÍNH NĂNG: Mobile UI, Prediction, Team Check, Name Tags
 -- ====================================================================
 
 if getgenv().TestingHudLoaded then return end
@@ -9,110 +10,41 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
-local Lighting = game:GetService("Lighting")
-local Workspace = game:GetService("Workspace")
 
--- [FIX 1]: Chờ LocalPlayer tải hoàn tất để chống lỗi Auto-Execute
 local LocalPlayer = Players.LocalPlayer
-while not LocalPlayer do
-    task.wait(0.5)
-    LocalPlayer = Players.LocalPlayer
-end
 local Camera = workspace.CurrentCamera
 
 -- ==================== CẤU HÌNH HỆ THỐNG ====================
 local Config = {
-    AimAssist = false, ESP = false, NameESP = false, NameMode = "DisplayName",     
-    ShowDistance = true, NameMaxDistance = 500, TeamCheck = true, ShowTeammates = false,
-    FOVRadius = 150, MaxDistance = 500, TargetPart = "HumanoidRootPart", VisibilityCheck = false,
-    EnemyColor = Color3.fromRGB(255, 50, 50), TeamColor = Color3.fromRGB(50, 255, 50),
+    AimAssist = false,
+    ESP = false,
+    NameESP = false,              
+    NameMode = "DisplayName",     
+    ShowDistance = true,          
+    NameMaxDistance = 500,        
+    
+    TeamCheck = true,
+    ShowTeammates = false,
+    FOVRadius = 150,
+    MaxDistance = 500,
+    TargetPart = "HumanoidRootPart",
+    VisibilityCheck = false,
+    EnemyColor = Color3.fromRGB(255, 50, 50),
+    TeamColor = Color3.fromRGB(50, 255, 50),
     DebugText = "Đang chờ...",
-    PredictMovement = true, BulletSpeed = 1000, DropCompensation = true, Smoothness = 0.6,
-    GraphicsOptimized = false, GraphicsMode = "Low"
+    
+    PredictMovement = true,
+    BulletSpeed = 1000,
+    DropCompensation = true,
+    Smoothness = 0.6
 }
 
-local currentTarget, activeHighlights, activeNameTags, connections = nil, {}, {}, {}
-local GraphicsCache = { Lighting = {}, Terrain = {}, Parts = {}, Particles = {}, Decals = {} }
-local graphicsAddedConn = nil
+local currentTarget = nil
+local activeHighlights = {}
+local activeNameTags = {} 
+local connections = {}
 
-local OptModes = {
-    Balanced = { Shadows = true, CastShadow = false, PostProcessing = false, Particles = true, SmoothPlastic = false, HideDecals = false },
-    Low = { Shadows = false, CastShadow = false, PostProcessing = false, Particles = false, SmoothPlastic = false, HideDecals = false },
-    VeryLow = { Shadows = false, CastShadow = false, PostProcessing = false, Particles = false, SmoothPlastic = true, HideDecals = true }
-}
-
--- ==================== LOGIC FPS OPTIMIZER ====================
-local function optimizeInstance(inst, modeSettings)
-    if not inst or not inst.Parent then return end
-    if inst:IsA("BasePart") then
-        if modeSettings.SmoothPlastic then
-            if not GraphicsCache.Parts[inst] then GraphicsCache.Parts[inst] = { Material = inst.Material, CastShadow = inst.CastShadow } end
-            pcall(function() inst.Material = Enum.Material.SmoothPlastic; inst.CastShadow = false end)
-        elseif not modeSettings.CastShadow then
-            if not GraphicsCache.Parts[inst] then GraphicsCache.Parts[inst] = { CastShadow = inst.CastShadow } end
-            pcall(function() inst.CastShadow = false end)
-        end
-    elseif inst:IsA("ParticleEmitter") or inst:IsA("Trail") or inst:IsA("Beam") or inst:IsA("Smoke") or inst:IsA("Fire") or inst:IsA("Sparkles") then
-        local shouldDisable = (not modeSettings.Particles) or (modeSettings.Particles and (inst:IsA("Smoke") or inst:IsA("Fire")))
-        if shouldDisable then
-            if GraphicsCache.Particles[inst] == nil then GraphicsCache.Particles[inst] = inst.Enabled end
-            pcall(function() inst.Enabled = false end)
-        end
-    elseif inst:IsA("Decal") or inst:IsA("Texture") then
-        if modeSettings.HideDecals then
-            if GraphicsCache.Decals[inst] == nil then GraphicsCache.Decals[inst] = inst.Transparency end
-            pcall(function() inst.Transparency = 1 end) 
-        end
-    end
-end
-
-local function applyOptimization()
-    local settings = OptModes[Config.GraphicsMode]
-    GraphicsCache.Lighting.GlobalShadows = Lighting.GlobalShadows
-    pcall(function() Lighting.GlobalShadows = settings.Shadows end)
-    for _, effect in ipairs(Lighting:GetChildren()) do
-        if effect:IsA("PostEffect") or effect:IsA("BlurEffect") or effect:IsA("BloomEffect") or effect:IsA("SunRaysEffect") or effect:IsA("ColorCorrectionEffect") or effect:IsA("DepthOfFieldEffect") then
-            if GraphicsCache.Lighting[effect] == nil then GraphicsCache.Lighting[effect] = effect.Enabled end
-            pcall(function() effect.Enabled = settings.PostProcessing end)
-        end
-    end
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-    if terrain then
-        GraphicsCache.Terrain = { WaveSize = terrain.WaterWaveSize, WaveSpeed = terrain.WaterWaveSpeed, Reflectance = terrain.WaterReflectance }
-        pcall(function() terrain.WaterWaveSize = 0; terrain.WaterWaveSpeed = 0; terrain.WaterReflectance = 0 end)
-    end
-    task.spawn(function()
-        local count = 0
-        for _, inst in ipairs(Workspace:GetDescendants()) do
-            optimizeInstance(inst, settings)
-            count = count + 1; if count % 5000 == 0 then task.wait() end 
-        end
-    end)
-    if graphicsAddedConn then graphicsAddedConn:Disconnect() end
-    graphicsAddedConn = Workspace.DescendantAdded:Connect(function(newChild)
-        if Config.GraphicsOptimized then optimizeInstance(newChild, OptModes[Config.GraphicsMode]) end
-    end)
-end
-
-local function restoreGraphics()
-    if graphicsAddedConn then graphicsAddedConn:Disconnect(); graphicsAddedConn = nil end
-    pcall(function() Lighting.GlobalShadows = GraphicsCache.Lighting.GlobalShadows end)
-    for effect, state in pairs(GraphicsCache.Lighting) do
-        if typeof(effect) == "Instance" and effect.Parent then pcall(function() effect.Enabled = state end) end
-    end
-    local terrain = Workspace:FindFirstChildOfClass("Terrain")
-    if terrain and GraphicsCache.Terrain.WaveSize then
-        pcall(function() terrain.WaterWaveSize = GraphicsCache.Terrain.WaveSize; terrain.WaterWaveSpeed = GraphicsCache.Terrain.WaveSpeed; terrain.WaterReflectance = GraphicsCache.Terrain.Reflectance end)
-    end
-    for part, data in pairs(GraphicsCache.Parts) do
-        if part and part.Parent then pcall(function() if data.Material then part.Material = data.Material end; if data.CastShadow ~= nil then part.CastShadow = data.CastShadow end end) end
-    end
-    for inst, state in pairs(GraphicsCache.Particles) do if inst and inst.Parent then pcall(function() inst.Enabled = state end) end end
-    for inst, state in pairs(GraphicsCache.Decals) do if inst and inst.Parent then pcall(function() inst.Transparency = state end) end end
-    GraphicsCache = { Lighting = {}, Terrain = {}, Parts = {}, Particles = {}, Decals = {} }
-end
-
--- ==================== LOGIC ĐỊCH/TA & ESP ====================
+-- ==================== LOGIC ĐỊCH/TA & ESP TÊN ====================
 local function IsEnemy(targetPlayer)
     if targetPlayer == LocalPlayer then return false end
     if not Config.TeamCheck then return true end 
@@ -129,21 +61,36 @@ end
 local function refreshESP()
     for player, highlight in pairs(activeHighlights) do
         local tag = activeNameTags[player]
+        
         if player and player.Character and player.Character:FindFirstChild("HumanoidRootPart") and highlight.Parent then
             local isEnm = IsEnemy(player)
             local isVisible = isEnm or Config.ShowTeammates
             local color = isEnm and Config.EnemyColor or Config.TeamColor
             
-            if Config.ESP and isVisible then highlight.Enabled = true; highlight.FillColor = color else highlight.Enabled = false end
+            if Config.ESP and isVisible then
+                highlight.Enabled = true
+                highlight.FillColor = color
+            else
+                highlight.Enabled = false
+            end
+            
             if tag then
                 if Config.NameESP and isVisible then
-                    tag.Enabled = true; tag.MaxDistance = Config.NameMaxDistance; tag.TextLabel.TextColor3 = color
-                    if not Config.ShowDistance then tag.TextLabel.Text = getPlayerNameText(player) end
-                else tag.Enabled = false end
+                    tag.Enabled = true
+                    tag.MaxDistance = Config.NameMaxDistance
+                    tag.TextLabel.TextColor3 = color
+                    if not Config.ShowDistance then
+                        tag.TextLabel.Text = getPlayerNameText(player)
+                    end
+                else
+                    tag.Enabled = false
+                end
             end
         else
-            if highlight then highlight:Destroy() end; if tag then tag:Destroy() end
-            activeHighlights[player] = nil; activeNameTags[player] = nil
+            if highlight then highlight:Destroy() end
+            if tag then tag:Destroy() end
+            activeHighlights[player] = nil
+            activeNameTags[player] = nil
         end
     end
 end
@@ -158,19 +105,39 @@ local function applyESP(player, character)
     if activeNameTags[player] then activeNameTags[player]:Destroy() end
     
     local highlight = Instance.new("Highlight")
-    highlight.Name = "TestingESP"; highlight.Adornee = character; highlight.OutlineColor = Color3.new(1, 1, 1); highlight.OutlineTransparency = 0.2
+    highlight.Name = "TestingESP"
+    highlight.Adornee = character
+    highlight.OutlineColor = Color3.new(1, 1, 1)
+    highlight.OutlineTransparency = 0.2
     
+    -- Cố gắng gắn Highlight vào CoreGui để tránh bị game phát hiện xóa mất
     pcall(function() highlight.Parent = CoreGui end)
     if not highlight.Parent then highlight.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    
     activeHighlights[player] = highlight
     
     local bbGui = Instance.new("BillboardGui")
-    bbGui.Name = "TestingNameESP"; bbGui.Adornee = head; bbGui.Size = UDim2.new(0, 200, 0, 50); bbGui.StudsOffset = Vector3.new(0, 1.5, 0); bbGui.AlwaysOnTop = true; bbGui.MaxDistance = Config.NameMaxDistance
+    bbGui.Name = "TestingNameESP"
+    bbGui.Adornee = head
+    bbGui.Size = UDim2.new(0, 200, 0, 50)
+    bbGui.StudsOffset = Vector3.new(0, 1.5, 0)
+    bbGui.AlwaysOnTop = true
+    bbGui.MaxDistance = Config.NameMaxDistance
+    
     local textLabel = Instance.new("TextLabel")
-    textLabel.Name = "TextLabel"; textLabel.Size = UDim2.new(1, 0, 1, 0); textLabel.BackgroundTransparency = 1; textLabel.Font = Enum.Font.GothamBold; textLabel.TextSize = 13; textLabel.TextColor3 = Color3.new(1, 1, 1); textLabel.TextStrokeTransparency = 0.2; textLabel.Text = getPlayerNameText(player); textLabel.Parent = bbGui
+    textLabel.Name = "TextLabel"
+    textLabel.Size = UDim2.new(1, 0, 1, 0)
+    textLabel.BackgroundTransparency = 1
+    textLabel.Font = Enum.Font.GothamBold
+    textLabel.TextSize = 13
+    textLabel.TextColor3 = Color3.new(1, 1, 1)
+    textLabel.TextStrokeTransparency = 0.2 
+    textLabel.Text = getPlayerNameText(player)
+    textLabel.Parent = bbGui
     
     pcall(function() bbGui.Parent = CoreGui end)
     if not bbGui.Parent then bbGui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+    
     activeNameTags[player] = bbGui
     refreshESP()
 end
@@ -227,33 +194,32 @@ local function getClosestTarget()
     return bestTarget
 end
 
--- ==================== KHỞI TẠO UI (SỬA LỖI TÀNG HÌNH) ====================
-local GuiName = "TestingHUD_V5_2"
+-- ==================== KHỞI TẠO UI (ĐÃ SỬA LỖI KHÔNG HIỆN) ====================
+local GuiName = "TestingHUD_V4_1"
 
--- Dọn dẹp an toàn GUI cũ
+-- 1. Xóa an toàn GUI cũ ở bất kỳ đâu
 pcall(function()
     if CoreGui:FindFirstChild(GuiName) then CoreGui:FindFirstChild(GuiName):Destroy() end
-    if LocalPlayer:WaitForChild("PlayerGui"):FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
+    if LocalPlayer.PlayerGui:FindFirstChild(GuiName) then LocalPlayer.PlayerGui:FindFirstChild(GuiName):Destroy() end
 end)
 
+-- 2. Khởi tạo ScreenGui
 local FovGui = Instance.new("ScreenGui")
 FovGui.Name = GuiName
 FovGui.ResetOnSpawn = false
 FovGui.IgnoreGuiInset = true 
-FovGui.DisplayOrder = 99999 -- [FIX 2]: Đảm bảo luôn nằm trên cùng mọi UI của game
 
--- [FIX 3]: Hàm tìm Parent an toàn, tuyệt đối không bị lỗi
-local function GetUIParent()
-    local success, result = pcall(function() return gethui() end)
-    if success and result then return result end
-    local success2, result2 = pcall(function() return CoreGui end)
-    if success2 and result2 then return result2 end
-    return LocalPlayer:WaitForChild("PlayerGui", 5)
+-- 3. Logic gắn Parent chắc chắn hiện 100%
+local successAttach = pcall(function()
+    -- Ưu tiên dùng gethui() nếu executor hỗ trợ chống phát hiện, nếu không dùng CoreGui
+    FovGui.Parent = (gethui and gethui()) or CoreGui
+end)
+if not successAttach or not FovGui.Parent then
+    -- Fallback cuối cùng: gắn vào PlayerGui (Hoạt động trên mọi thiết bị và studio)
+    FovGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
 end
 
-FovGui.Parent = GetUIParent()
-
--- ==================== MAIN RENDER ====================
+-- ==================== VÒNG LẶP CHÍNH ====================
 local FovCircle = Instance.new("Frame", FovGui); FovCircle.AnchorPoint = Vector2.new(0.5, 0.5); FovCircle.Position = UDim2.fromScale(0.5, 0.5); FovCircle.BackgroundTransparency = 1; Instance.new("UICorner", FovCircle).CornerRadius = UDim.new(1, 0)
 local FovStroke = Instance.new("UIStroke", FovCircle); FovStroke.Color = Color3.fromRGB(255, 255, 255); FovStroke.Thickness = 1.5
 
@@ -287,11 +253,11 @@ table.insert(connections, RunService.RenderStepped:Connect(function(deltaTime)
     end
 end))
 
--- ==================== GIAO DIỆN HUB ĐIỀU KHIỂN ====================
+-- ==================== GIAO DIỆN HUB CẤU HÌNH ====================
 local MainFrame = Instance.new("Frame", FovGui); MainFrame.Size = UDim2.new(0, 250, 0, 360); MainFrame.Position = UDim2.fromScale(0.2, 0.3); MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35); MainFrame.Active = true; Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 local FloatBtn = Instance.new("TextButton", FovGui); FloatBtn.Size = UDim2.new(0, 45, 0, 45); FloatBtn.Position = UDim2.new(0, 20, 0.5, 0); FloatBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 50); FloatBtn.Text = "HUB"; FloatBtn.TextColor3 = Color3.new(1,1,1); FloatBtn.Font = Enum.Font.GothamBold; FloatBtn.Visible = false; Instance.new("UICorner", FloatBtn).CornerRadius = UDim.new(1, 0)
 local TopBar = Instance.new("Frame", MainFrame); TopBar.Size = UDim2.new(1, 0, 0, 35); TopBar.BackgroundColor3 = Color3.fromRGB(20, 20, 25); Instance.new("UICorner", TopBar).CornerRadius = UDim.new(0, 8)
-local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUB v5.2 (Fix UI)"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+local TitleLabel = Instance.new("TextLabel", TopBar); TitleLabel.Size = UDim2.new(0.8, 0, 1, 0); TitleLabel.BackgroundTransparency = 1; TitleLabel.Text = " HUD CONTROL v4.1"; TitleLabel.TextColor3 = Color3.new(1, 1, 1); TitleLabel.Font = Enum.Font.GothamBold; TitleLabel.TextXAlignment = Enum.TextXAlignment.Left
 local CloseBtn = Instance.new("TextButton", TopBar); CloseBtn.Size = UDim2.new(0, 35, 1, 0); CloseBtn.Position = UDim2.new(1, -35, 0, 0); CloseBtn.BackgroundTransparency = 1; CloseBtn.Text = "X"; CloseBtn.TextColor3 = Color3.fromRGB(255, 80, 80); CloseBtn.Font = Enum.Font.GothamBold
 
 CloseBtn.MouseButton1Click:Connect(function() MainFrame.Visible = false; FloatBtn.Visible = true end)
@@ -312,5 +278,45 @@ local DebugLabel = Instance.new("TextLabel", MainFrame); DebugLabel.Size = UDim2
 table.insert(connections, RunService.RenderStepped:Connect(function() DebugLabel.Text = Config.AimAssist and "Aim: " .. Config.DebugText or "Aim: Đang tắt" end))
 
 local layoutOrder = 0
-local function createTitle(text)
-    local lbl = Instance.new("TextLabel", Scroll); lbl.Size = UDim2.new(1, 0, 0, 20); lbl.BackgroundTransparency = 1; lbl.Text = text; lbl.TextColor3 = Color3.fromRGB(180, 180, 200); lbl.Font = Enum.Font.Go
+local function createButton(text, stateVar, callback)
+    local btn = Instance.new("TextButton", Scroll); btn.Size = UDim2.new(0.9, 0, 0, 35); btn.BackgroundColor3 = Config[stateVar] and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(60, 60, 70); btn.TextColor3 = Color3.new(1, 1, 1); btn.Text = text .. ": " .. (Config[stateVar] and "ON" or "OFF"); btn.Font = Enum.Font.GothamBold; btn.LayoutOrder = layoutOrder; layoutOrder += 1; Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 5)
+    btn.MouseButton1Click:Connect(function() Config[stateVar] = not Config[stateVar]; btn.BackgroundColor3 = Config[stateVar] and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(60, 60, 70); btn.Text = text .. ": " .. (Config[stateVar] and "ON" or "OFF"); callback(Config[stateVar]) end)
+    return btn
+end
+
+local function createValueTuner(text, min, max, step, configKey, callback)
+    local frame = Instance.new("Frame", Scroll); frame.Size = UDim2.new(0.9, 0, 0, 60); frame.BackgroundTransparency = 1; frame.LayoutOrder = layoutOrder; layoutOrder += 1
+    local label = Instance.new("TextLabel", frame); label.Size = UDim2.new(1, 0, 0, 25); label.BackgroundTransparency = 1; label.TextColor3 = Color3.new(1, 1, 1); label.Text = text .. ": " .. Config[configKey]; label.Font = Enum.Font.Gotham
+    local btnMinus = Instance.new("TextButton", frame); btnMinus.Size = UDim2.new(0.25, 0, 0, 30); btnMinus.Position = UDim2.new(0, 0, 0, 30); btnMinus.Text = "-"; btnMinus.BackgroundColor3 = Color3.fromRGB(70,70,80); btnMinus.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", btnMinus).CornerRadius = UDim.new(0,5)
+    local btnPlus = Instance.new("TextButton", frame); btnPlus.Size = UDim2.new(0.25, 0, 0, 30); btnPlus.Position = UDim2.new(0.75, 0, 0, 30); btnPlus.Text = "+"; btnPlus.BackgroundColor3 = Color3.fromRGB(70,70,80); btnPlus.TextColor3 = Color3.new(1,1,1); Instance.new("UICorner", btnPlus).CornerRadius = UDim.new(0,5)
+    btnMinus.MouseButton1Click:Connect(function() Config[configKey] = math.max(min, Config[configKey] - step); label.Text = text .. ": " .. Config[configKey]; if callback then callback() end end)
+    btnPlus.MouseButton1Click:Connect(function() Config[configKey] = math.min(max, Config[configKey] + step); label.Text = text .. ": " .. Config[configKey]; if callback then callback() end end)
+end
+
+-- TẠO CÁC NÚT ĐIỀU KHIỂN
+createButton("ESP Highlight", "ESP", refreshESP)
+createButton("Enemy Name ESP", "NameESP", refreshESP)
+
+local modeBtn = Instance.new("TextButton", Scroll); modeBtn.Size = UDim2.new(0.9, 0, 0, 35); modeBtn.BackgroundColor3 = Color3.fromRGB(80, 100, 150); modeBtn.TextColor3 = Color3.new(1, 1, 1); modeBtn.Text = "Name Mode: " .. Config.NameMode; modeBtn.Font = Enum.Font.GothamBold; modeBtn.LayoutOrder = layoutOrder; layoutOrder += 1; Instance.new("UICorner", modeBtn).CornerRadius = UDim.new(0, 5)
+modeBtn.MouseButton1Click:Connect(function()
+    if Config.NameMode == "DisplayName" then Config.NameMode = "Username" elseif Config.NameMode == "Username" then Config.NameMode = "Both" else Config.NameMode = "DisplayName" end
+    modeBtn.Text = "Name Mode: " .. Config.NameMode; refreshESP()
+end)
+
+createButton("Show Distance", "ShowDistance", refreshESP)
+createValueTuner("Max Name Dist", 50, 2000, 50, "NameMaxDistance", refreshESP) 
+createButton("Team Check", "TeamCheck", refreshESP)
+createButton("Show Teammates", "ShowTeammates", refreshESP)
+
+local partBtn = Instance.new("TextButton", Scroll); partBtn.Size = UDim2.new(0.9, 0, 0, 35); partBtn.BackgroundColor3 = Color3.fromRGB(80, 100, 150); partBtn.TextColor3 = Color3.new(1, 1, 1); partBtn.Text = "Target: " .. Config.TargetPart; partBtn.Font = Enum.Font.GothamBold; partBtn.LayoutOrder = layoutOrder; layoutOrder += 1; Instance.new("UICorner", partBtn).CornerRadius = UDim.new(0, 5)
+partBtn.MouseButton1Click:Connect(function() Config.TargetPart = Config.TargetPart == "HumanoidRootPart" and "Head" or "HumanoidRootPart"; partBtn.Text = "Target: " .. Config.TargetPart end)
+
+createButton("Aim Assist", "AimAssist", function(val) FovCircle.Visible = val end)
+createButton("Vis Check (Raycast)", "VisibilityCheck", function() end)
+createButton("Movement Prediction", "PredictMovement", function() end)
+createButton("Bullet Drop Comp", "DropCompensation", function() end)
+
+createValueTuner("FOV Radius", 50, 500, 25, "FOVRadius")
+createValueTuner("Max Aim Dist", 50, 2000, 50, "MaxDistance")
+createValueTuner("Bullet Speed (0=Hitscan)", 0, 5000, 100, "BulletSpeed")
+createValueTuner("Aim Smoothness", 0.1, 1.0, 0.1, "Smoothness")
